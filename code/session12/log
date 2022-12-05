@@ -1,0 +1,100 @@
+champly@ubuntu:~/eBPF/example/session12$ mount | grep cgroup
+tmpfs on /sys/fs/cgroup type tmpfs (ro,nosuid,nodev,noexec,mode=755,inode64)
+cgroup2 on /sys/fs/cgroup/unified type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate)
+cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,name=systemd)
+cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpu,cpuacct)
+cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)
+cgroup on /sys/fs/cgroup/rdma type cgroup (rw,nosuid,nodev,noexec,relatime,rdma)
+cgroup on /sys/fs/cgroup/net_cls,net_prio type cgroup (rw,nosuid,nodev,noexec,relatime,net_cls,net_prio)
+cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)
+cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)
+cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)
+cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)
+cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)
+cgroup on /sys/fs/cgroup/misc type cgroup (rw,nosuid,nodev,noexec,relatime,misc)
+cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)
+cgroup on /sys/fs/cgroup/pids type cgroup (rw,nosuid,nodev,noexec,relatime,pids)
+
+
+
+
+champly@ubuntu:~/eBPF/example/session12$ docker run -itd --rm --name=http1 --hostname=http1 feisky/webserver
+33fb44488527c70424ff55793fdfc34d9004cde1e177b85a6e480f65dff04f2e
+champly@ubuntu:~/eBPF/example/session12$ docker run -itd --rm --name=http2 --hostname=http2 feisky/webserver
+d6428353fd79c21446923f7c50f74dc35e9f9b6de60adefe372d9004f490e9b3
+champly@ubuntu:~/eBPF/example/session12$ docker run -itd --rm --name=nginx nginx
+ed5f0acc0f9b74f5767164ef97c9826eca1586049230a2a8d50179ec6e492702
+champly@ubuntu:~/eBPF/example/session12$ IP1=$(docker inspect http1 -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+champly@ubuntu:~/eBPF/example/session12$ IP2=$(docker inspect http2 -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+champly@ubuntu:~/eBPF/example/session12$ echo "Webserver1's IP: $IP1"
+Webserver1's IP: 172.17.0.2
+champly@ubuntu:~/eBPF/example/session12$ echo "Webserver2's IP: $IP2"
+Webserver2's IP: 172.17.0.3
+champly@ubuntu:~/eBPF/example/session12$ cat>nginx.conf <<EOF
+> user  nginx;
+> worker_processes  auto;
+>
+> error_log  /var/log/nginx/error.log notice;
+> pid        /var/run/nginx.pid;
+>
+> events {
+>     worker_connections  1024;
+> }
+>
+> http {
+>    include       /etc/nginx/mime.types;
+>    default_type  application/octet-stream;
+>
+>     upstream webservers {
+>         server $IP1;
+>         server $IP2;
+>     }
+>
+>     server {
+>         listen 80;
+>
+>         location / {
+>             proxy_pass http://webservers;
+>         }
+>     }
+> }
+> EOF
+champly@ubuntu:~/eBPF/example/session12$ docker cp nginx.conf nginx:/etc/nginx/nginx.conf
+champly@ubuntu:~/eBPF/example/session12$ docker exec nginx nginx -s reload
+2022/12/05 09:04:56 [notice] 37#37: signal process started
+champly@ubuntu:~/eBPF/example/session12$ IP_LB=$(docker inspect nginx -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+champly@ubuntu:~/eBPF/example/session12$ docker run -it --rm --name=client skandyla/wrk -c100 http://$IP_LB
+Running 10s test @ http://172.17.0.4
+  2 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     8.26ms    6.08ms  60.22ms   72.11%
+    Req/Sec     6.53k     0.92k    8.69k    68.00%
+  130064 requests in 10.02s, 20.47MB read
+Requests/sec:  12979.12
+Transfer/sec:      2.04MB
+champly@ubuntu:~/eBPF/example/session12$ sudo bpftool prog load sockops.bpf.o /sys/fs/bpf/sockops type sockops pinmaps /sys/fs/bpf
+champly@ubuntu:~/eBPF/example/session12$ sudo bpftool prog load sockredir.bpf.o /sys/fs/bpf/sockredir type sk_msg map name sock_ops_map pinned /sys/fs/bpf/sock_ops_map
+champly@ubuntu:~/eBPF/example/session12$ sudo bpftool cgroup attach /sys/fs/cgroup/unified sock_ops pinned /sys/fs/bpf/sockops
+champly@ubuntu:~/eBPF/example/session12$ sudo bpftool prog attach pinned /sys/fs/bpf/sockredir msg_verdict pinned /sys/fs/bpf/sock_ops_map
+champly@ubuntu:~/eBPF/example/session12$ docker run -it --rm --name=client skandyla/wrk -c100 http://$IP_LB
+Running 10s test @ http://172.17.0.4
+  2 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     7.84ms    5.76ms  54.50ms   71.07%
+    Req/Sec     6.89k     0.87k    8.97k    63.50%
+  137069 requests in 10.02s, 21.57MB read
+Requests/sec:  13676.41
+Transfer/sec:      2.15MB
+champly@ubuntu:~/eBPF/example/session12$ sudo bpftool prog detach pinned /sys/fs/bpf/sockredir msg_verdict pinned /sys/fs/bpf/sock_ops_map
+champly@ubuntu:~/eBPF/example/session12$ sudo bpftool cgroup detach /sys/fs/cgroup/unified sock_ops name bpf_sockmap
+champly@ubuntu:~/eBPF/example/session12$ sudo rm -rf /sys/fs/bpf/sockops /sys/fs/bpf/sockredir /sys/fs/bpf/sock_ops_map
+champly@ubuntu:~/eBPF/example/session12$ docker run -it --rm --name=client skandyla/wrk -c100 http://$IP_LB
+Running 10s test @ http://172.17.0.4
+  2 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     8.29ms    6.15ms  50.12ms   70.69%
+    Req/Sec     6.52k     0.93k    8.50k    64.00%
+  129810 requests in 10.03s, 20.43MB read
+Requests/sec:  12948.24
+Transfer/sec:      2.04MB
+champly@ubuntu:~/eBPF/example/session12$
