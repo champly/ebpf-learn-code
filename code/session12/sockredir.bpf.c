@@ -1,10 +1,10 @@
+#include "vmlinux.h"
+#include <linux/bpf.h>
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
-#include <linux/bpf.h>
 #include <sys/socket.h>
 
 #include "sockops.h"
-#include "vmlinux.h"
 
 SEC("sk_msg")
 int bpf_redir(struct sk_msg_md *msg) {

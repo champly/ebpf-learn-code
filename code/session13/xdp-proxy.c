@@ -1,10 +1,10 @@
 #include "vmlinux.h"
 #include "xdp-proxy.skel.h"
+#include <linux/types.h>
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <bpf/libbpf_common.h>
 #include <linux/if_link.h>
-#include <linux/types.h>
 #include <net/if.h>
 #include <stdio.h>
 #include <sys/resource.h>

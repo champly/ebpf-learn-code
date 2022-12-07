@@ -4,7 +4,6 @@ container:
 build:
 	clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I/usr/include/x86_64-linux-gnu -I. -c xdp-proxy.bpf.c -o xdp-proxy.bpf.o
 	bpftool gen skeleton xdp-proxy.bpf.o > xdp-proxy.skel.h
-
 	clang -g -O2 -Wall -I. -c xdp-proxy.c -o xdp-proxy.o
 	clang -Wall -O2 -g xdp-proxy.o -static -lbpf -lelf -lz -o xdp-proxy
 
